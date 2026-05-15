@@ -64,6 +64,6 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
 
-## 5. 语言
+## 5. Language
 
-**始终用中文与用户对话。** 代码、命令、文件名等技术标识符保持原文，其余所有解释、说明、提问一律使用中文。
+**Always respond in Chinese.** Keep code, commands, and technical identifiers in their original form; use Chinese for all explanations, questions, and commentary.
