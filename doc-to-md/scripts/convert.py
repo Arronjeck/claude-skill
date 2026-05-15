@@ -68,7 +68,9 @@ def convert_docx(input_path: str, assets_dir: Path | None = None) -> str:
     ensure_deps("python-docx")
     from docx import Document
 
-    doc = Document(input_path)
+    # 用 open() 传文件对象，避免 python-docx 在 Windows 上处理中文路径时编码出错
+    with open(input_path, "rb") as f:
+        doc = Document(f)
 
     # assets 目录：与输出 md 同级，名为 <文档名>_assets
     if assets_dir is None:
