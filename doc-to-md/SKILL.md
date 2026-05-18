@@ -34,13 +34,15 @@ python "C:/Users/chenhj10/.claude/skills/doc-to-md/scripts/convert.py" "<input.d
 ### PDF
 
 优先使用 `pymupdf`（需安装）通过字号和字体推断标题层级；
-fallback 到 `pypdf`（已内置），通过数字编号模式识别章节标题。
+fallback 到 `pypdf`（已内置），仅能识别数字编号标题，表格和代码块质量下降。
 
 | 原文档元素 | 转换结果（pymupdf） |
 |---|---|
-| 字号 ≥ 正文 1.5x 或加粗 ≥ 1.3x | `#` 标题 |
-| 字号 ≥ 正文 1.2x 或加粗 ≥ 1.1x | `##` 标题 |
-| 加粗（字号相近） | `###` 标题 |
+| 数字编号行（`2. xxx`） | `##` 标题 |
+| 数字编号行（`2.3 xxx`） | `###` 标题 |
+| 字号 ≥ 正文 1.8x | `#` 标题（文档大标题） |
+| SourceCodePro/Courier/Mono 字体 | 代码块 ` ``` ` |
+| 字号 = 正文字号的 block | Markdown 表格行 |
 
 ## 依赖
 

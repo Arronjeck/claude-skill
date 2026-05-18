@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """将 .docx 或 .pdf 文件转换为可读的 Markdown 格式。"""
 import sys
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -23,11 +24,6 @@ def ensure_deps(*packages):
 
 # ─── DOCX 转换 ───────────────────────────────────────────────────────────────
 
-def _assets_dir_for(output_path: Path) -> Path:
-    """生成 assets 目录：与 md 同级的 assets/ 子目录，用文件名 hash 前缀区分多文档。"""
-    import hashlib
-    prefix = hashlib.md5(output_path.stem.encode()).hexdigest()[:8]
-    return output_path.parent / "assets" / prefix
 _NS_A   = "http://schemas.openxmlformats.org/drawingml/2006/main"
 _NS_R   = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _NS_WP  = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
@@ -53,13 +49,13 @@ def _extract_para_images(para_elem, doc, assets_dir: Path, img_counter: list) ->
             base = f"image{img_counter[0]}"
             filename = f"{base}{ext}"
             dest = assets_dir / filename
-            # 文件名冲突时追加 (1)、(2)...
             n = 1
             while dest.exists():
                 filename = f"{base}({n}){ext}"
                 dest = assets_dir / filename
                 n += 1
             dest.write_bytes(part.blob)
+            # 使用相对路径：仅用 assets_dir 的最后一级目录名
             refs.append(f"![{filename}]({assets_dir.name}/{filename})")
     return refs
 
@@ -149,7 +145,7 @@ def convert_docx(input_path: str, assets_dir: Path | None = None) -> str:
             # 先提取图片（图片段落可能同时有文字说明）
             img_refs = _extract_para_images(child, doc, assets_dir, img_counter)
             for ref in img_refs:
-                md_lines.append(f"\n{ref}\n")
+                md_lines.append(ref)
 
             text = para.text.strip()
             if not text:
@@ -243,15 +239,13 @@ def convert_pdf(input_path: str) -> str:
     优先用 pymupdf（fitz）提取带位置信息的文本，推断标题层级。
     fallback 到 pypdf 纯文本提取。
     """
-    # 尝试 pymupdf
     try:
         ensure_deps("pymupdf")
-        import fitz
+        import fitz  # noqa: F401
         return _pdf_via_pymupdf(input_path)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[警告] pymupdf 不可用（{e}），降级使用 pypdf，表格和代码块识别质量会下降", file=sys.stderr)
 
-    # fallback: pypdf
     try:
         ensure_deps("pypdf")
         return _pdf_via_pypdf(input_path)
@@ -423,22 +417,60 @@ def _pdf_via_pypdf(input_path: str) -> str:
 
 # ─── 入口 ────────────────────────────────────────────────────────────────────
 
-def convert(input_path: str, output_path: str | None = None) -> str:
-    p = Path(input_path)
-    suffix = p.suffix.lower()
+def _resolve_path(input_path: str) -> tuple[str, str]:
+    """
+    On Windows with GBK filesystem + UTF-8 Python, CLI-passed Chinese paths
+    may not match os.scandir filenames. Returns (real_path, display_path):
+      real_path    - path that open() can use (may be garbled string)
+      display_path - path for deriving output filename (original input)
+    """
+    if os.path.exists(input_path):
+        return input_path, input_path
 
+    parent = os.path.dirname(input_path) or "."
+    target = os.path.basename(input_path)
+    suffix = os.path.splitext(target)[1].lower()
+
+    try:
+        candidates = [e for e in os.scandir(parent)
+                      if e.name.lower().endswith(suffix)]
+    except OSError:
+        return input_path, input_path
+
+    if len(candidates) == 1:
+        return candidates[0].path, input_path
+
+    def ascii_overlap(a, b):
+        sa = set(c for c in a if ord(c) < 128)
+        sb = set(c for c in b if ord(c) < 128)
+        return len(sa & sb)
+
+    best = max(candidates, key=lambda e: ascii_overlap(e.name, target))
+    return best.path, input_path
+
+
+def convert(input_path: str, output_path: str | None = None) -> str:
+    real_path, display_path = _resolve_path(input_path)
+    p_real = Path(real_path)
+    p_display = Path(display_path)
+    suffix = p_real.suffix.lower()
+
+    # 输出路径用 display_path 派生，保留原始（UTF-8）文件名
     if output_path is None:
-        output_path = str(p.with_suffix(".md"))
+        output_path = str(p_display.with_suffix(".md"))
 
     out_p = Path(output_path)
     assets_dir = out_p.parent / (out_p.stem + "_assets")
 
     if suffix == ".docx":
-        content = convert_docx(input_path, assets_dir)
+        content = convert_docx(real_path, assets_dir)
     elif suffix == ".pdf":
-        content = convert_pdf(input_path)
+        content = convert_pdf(real_path)
     else:
         raise ValueError(f"不支持的文件类型：{suffix}（仅支持 .docx 和 .pdf）")
+
+    # 压缩多余空行（超过 2 个连续空行合并为 1 个）
+    content = re.sub(r"\n{3,}", "\n\n", content)
 
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(content)
